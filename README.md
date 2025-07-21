@@ -43,6 +43,12 @@ A web application that displays outdoor places (parks and recreation) within Sou
     VITE_ARCGIS_API_KEY=your_arcgis_api_key_here
     ```
 
+4. **Install the required ArcGIS and Calcite dependencies**
+
+   ```bash
+   npm install @arcgis/map-components
+   ```
+
 ## Code Structure
 
 ### HTML Structure
