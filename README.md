@@ -94,6 +94,8 @@ body {
 ```
 
 ### TypeScript code
+
+1. Import the required components and headers
 ```ts
 import "./style.css";
 import "@esri/calcite-components/components/calcite-select";
@@ -112,13 +114,23 @@ import GraphicsLayer from "@arcgis/core/layers/GraphicsLayer";
 import Graphic from "@arcgis/core/Graphic";
 import * as places from "@arcgis/core/rest/places";
 import PlacesQueryParameters from "@arcgis/core/rest/support/PlacesQueryParameters";
+```
 
+2. Authenicate using the API key.
+```ts
 // API authentication
 esriConfig.apiKey = import.meta.env.VITE_ARCGIS_API_KEY;
+```
 
+3. Get the Map view and check if its ready.
+```ts
 // Get the map view
 const viewElement = document.querySelector("arcgis-map");
 viewElement?.addEventListener("arcgisViewReadyChange", async () => {
+```
+
+4. Inside the viewElement, create the graphics layer and perform querying the layers
+```ts
   // Create a graphics layer
   const coastalCitiesGraphicsLayer = new GraphicsLayer();
 
@@ -177,7 +189,10 @@ viewElement?.addEventListener("arcgisViewReadyChange", async () => {
       })
     );
   }
+```
 
+5. Filter the results to remove duplicate entries
+```ts
   // Get results
   const results = await Promise.all(coastalCitiesResult);
   const allCityFeatures = results.flatMap((r) => r.features);
@@ -194,7 +209,10 @@ viewElement?.addEventListener("arcgisViewReadyChange", async () => {
       return true;
     }
   });
+```
 
+6. Create the graphics to display the city boundaries and add the graphics layer to the map
+```ts
   // Create place graphics
   function createPlaceGraphics(placeFeatures: any) {
     return placeFeatures.map((placeFeature: any) => {
@@ -219,7 +237,10 @@ viewElement?.addEventListener("arcgisViewReadyChange", async () => {
 
   // Add the graphics layer to the map
   viewElement?.map?.add(coastalCitiesGraphicsLayer);
+```
 
+7. Build the calcite select menu and its option
+```ts
   // Create city options
   const citySelector = document.getElementById("citySelector") as any;
 
@@ -243,7 +264,10 @@ viewElement?.addEventListener("arcgisViewReadyChange", async () => {
     citySelector.appendChild(option);
     cityFeaturesMap.set(cityName, city);
   }
+```
 
+8. Use the Places REST API to gather all the available parks and recreations inside the selected city's extent.
+```ts
   // Create layers for places and buffer
   const placesLayer = new GraphicsLayer({ id: "placesLayer" });
 
