@@ -12,8 +12,8 @@ A web application that displays outdoor places (parks and recreation) within Sou
 ## Screenshot
 
 1. The main application
-   ![Application Screenshot](https://github.com/user-attachments/assets/79cc173d-6137-4445-a2ca-295f7c856eb2)
-
+   <img width="1919" height="955" alt="image" src="https://github.com/user-attachments/assets/ba8db19a-9327-4935-a28c-797fb6823188" />
+   
 ## Prerequisites
 
 * Node.js
