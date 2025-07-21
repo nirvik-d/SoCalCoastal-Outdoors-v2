@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SoCal Coastal Outdoors</title>
+  </head>
+  <body>
+    <arcgis-map
+      basemap="arcgis/topographic"
+      center="-117.9988, 33.6595"
+      zoom="8"
+    >
+      <arcgis-zoom position="top-left"></arcgis-zoom>
+      <arcgis-expand position="top-left">
+        <arcgis-basemap-gallery></arcgis-basemap-gallery>
+      </arcgis-expand>
+      <arcgis-placement position="top-right">
+        <calcite-select id="citySelector"></calcite-select>
+      </arcgis-placement>
+    </arcgis-map>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
