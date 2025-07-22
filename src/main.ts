@@ -136,7 +136,7 @@ viewElement?.addEventListener("arcgisViewReadyChange", async () => {
 
   // Store city features in a map for quick lookup
   const cityFeaturesMap = new Map<string, any>();
-  
+
   // Add city options to the select and store features
   for (const city of filteredCityFeatures) {
     const cityName = city.attributes.CDTFA_CITY;
@@ -157,64 +157,87 @@ viewElement?.addEventListener("arcgisViewReadyChange", async () => {
       const selectedCityFeature = cityFeaturesMap.get(selectedCityName);
       if (selectedCityFeature) {
         const geometry = selectedCityFeature.geometry;
+        if (geometry.extent.width < 20001 && geometry.extent.height < 20001) {
+          placesLayer.removeAll();
+          viewElement?.map?.remove(placesLayer);
 
-        // Query outdoor places within the city
-        const placesQueryParameters = new PlacesQueryParameters({
-          categoryIds: ["4d4b7105d754a06377d81259"], // Parks category
-          extent: geometry.extent,
-          icon: "png"
-        });
+          // Query outdoor places within the city
+          const placesQueryParameters = new PlacesQueryParameters({
+            categoryIds: ["4d4b7105d754a06377d81259"], // Parks category
+            extent: geometry.extent,
+            icon: "png",
+          });
 
-        try {
-          const results = await places.queryPlacesWithinExtent(placesQueryParameters);
-          
-          // Add outdoor places to the map
-          results.results.forEach((placeResult: any) => {
-            const placeGraphic = new Graphic({
-              geometry: placeResult.location,
-              symbol: {
-                type: "picture-marker",
-                url: placeResult.icon.url,
-                width: 15,
-                height: 15
-              },
-              attributes: {
-                name: placeResult.name,
-                address: placeResult.address,
-                category: placeResult.categories[0].label
-              },
-              popupTemplate: {
-                title: "{name}",
-                content: [
-                  {
-                    type: "fields",
-                    fieldInfos: [
-                      {
-                        fieldName: "address",
-                        label: "Address"
-                      },
-                      {
-                        fieldName: "category",
-                        label: "Category"
-                      }
-                    ]
-                  }
-                ]
-              }
+          try {
+            const results = await places.queryPlacesWithinExtent(
+              placesQueryParameters
+            );
+
+            // Add outdoor places to the map
+            results.results.forEach((placeResult: any) => {
+              const placeGraphic = new Graphic({
+                geometry: placeResult.location,
+                symbol: {
+                  type: "picture-marker",
+                  url: placeResult.icon.url,
+                  width: 15,
+                  height: 15,
+                },
+                attributes: {
+                  name: placeResult.name,
+                  address: placeResult.address,
+                  category: placeResult.categories[0].label,
+                },
+                popupTemplate: {
+                  title: "{name}",
+                  content: [
+                    {
+                      type: "fields",
+                      fieldInfos: [
+                        {
+                          fieldName: "address",
+                          label: "Address",
+                        },
+                        {
+                          fieldName: "category",
+                          label: "Category",
+                        },
+                      ],
+                    },
+                  ],
+                },
+              });
+
+              placesLayer.add(placeGraphic);
             });
-            placesLayer.add(placeGraphic);
-          });
 
-          // Zoom to the city with a buffer
-          viewElement?.goTo({
-            target: geometry,
-            zoom: 12
-          });
+            // Zoom to the city with a buffer
+            viewElement?.goTo({
+              target: geometry,
+              zoom: 12,
+            });
 
-          // Add the graphics layer to the map
-          viewElement?.map?.add(placesLayer);
-        } catch (error) {
-          console.error('Error loading outdoor places:', error);
+            // Add the graphics layer to the map
+            viewElement?.map?.add(placesLayer);
+          } catch (error: any) {
+            if (
+              error.details &&
+              Array.isArray(error.details.messages) &&
+              error.details.messages.length > 0
+            ) {
+              console.error(
+                "Error loading outdoor places:",
+                error.details.messages[0]
+              );
+            } else {
+              console.error(
+                "Error loading outdoor places:",
+                error.message || error.toString()
+              );
+            }
+          }
+        } else {
+          console.warn("City is too large for place query.");
         }
       }
     }
