@@ -383,5 +383,7 @@ npm run dev
 npm run build
 ```
 
+### Known Issues
+- The application only loads outdoor places for cities with height and width of 20001 meters each.
 
 
