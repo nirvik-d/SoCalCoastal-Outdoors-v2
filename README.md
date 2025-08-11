@@ -101,12 +101,13 @@ body {
 
 ### TypeScript code
 
-1. Import the required components and headers
-```ts
+1. **Import the required modules**
+
+```typescript
 import "./style.css";
+
 import "@esri/calcite-components/components/calcite-select";
 import "@esri/calcite-components/components/calcite-option";
-
 import "@arcgis/map-components/components/arcgis-map";
 import "@arcgis/map-components/components/arcgis-zoom";
 import "@arcgis/map-components/components/arcgis-expand";
@@ -117,258 +118,289 @@ import "@arcgis/map-components/components/arcgis-feature-table";
 import esriConfig from "@arcgis/core/config";
 import FeatureLayer from "@arcgis/core/layers/FeatureLayer";
 import GraphicsLayer from "@arcgis/core/layers/GraphicsLayer";
+import FeatureSet from "@arcgis/core/rest/support/FeatureSet";
 import Graphic from "@arcgis/core/Graphic";
 import * as places from "@arcgis/core/rest/places";
 import PlacesQueryParameters from "@arcgis/core/rest/support/PlacesQueryParameters";
+import PlacesQueryResult from "@arcgis/core/rest/support/PlacesQueryResult";
+import FetchPlaceParameters from "@arcgis/core/rest/support/FetchPlaceParameters";
+import PlaceResult from "@arcgis/core/rest/support/PlaceResult";
+import * as intersectsOperator from "@arcgis/core/geometry/operators/intersectsOperator";
+import * as projectOperator from "@arcgis/core/geometry/operators/projectOperator";
+import type { GeometryUnion } from "@arcgis/core/unionTypes";
 ```
 
-2. Authenicate using the API key.
-```ts
+2. **Authenicate using the API key**
+
+```typescript
 // API authentication
 esriConfig.apiKey = import.meta.env.VITE_ARCGIS_API_KEY;
 ```
 
-3. Get the Map view and check if its ready.
-```ts
-// Get the map view
-const viewElement = document.querySelector("arcgis-map");
-viewElement?.addEventListener("arcgisViewReadyChange", async () => {
+3. **Create the feature layers and load them along with the project operator**
+
+```typescript
+const beachAccessPoints: FeatureLayer = new FeatureLayer({
+  url: "https://services9.arcgis.com/wwVnNW92ZHUIr0V0/arcgis/rest/services/AccessPoints/FeatureServer/0/",
+  outFields: ["*"],
+  definitionExpression: `COUNTY IN ('Santa Barbara', 'Ventura', 'Los Angeles', 'Orange', 'San Diego', 'San Luis Obispo', 'Imperial')`,
+});
+
+const coastalBufferLayer: FeatureLayer = new FeatureLayer({
+  url: "https://services3.arcgis.com/uknczv4rpevve42E/arcgis/rest/services/California_County_Boundaries_and_Identifiers_with_Coastal_Buffers/FeatureServer/1",
+  definitionExpression:
+    "OFFSHORE IS NOT NULL AND CDTFA_COUNTY in ('Santa Barbara County', 'Ventura County', 'Los Angeles County', 'Orange County', 'San Diego County', 'San Luis Obispo County', 'Imperial County')",
+  outFields: ["*"],
+});
+
+const coastalCitiesLayer: FeatureLayer = new FeatureLayer({
+  url: "https://services3.arcgis.com/uknczv4rpevve42E/arcgis/rest/services/California_Cities_and_Identifiers_Blue_Version_view/FeatureServer/2/",
+  outFields: ["*"],
+  definitionExpression: `CDTFA_COUNTY IN ('Santa Barbara County', 'Ventura County', 'Los Angeles County', 'Orange County', 'San Diego County', 'San Luis Obispo County', 'Imperial County')`
+});
+
+// Load feature layers and project operator
+await Promise.all([
+  beachAccessPoints.load(),
+  coastalBufferLayer.load(),
+  coastalCitiesLayer.load(),
+  projectOperator.load(),
+]);
 ```
 
-4. Inside the viewElement, create the graphics layer and perform querying the layers
-```ts
-  // Create a graphics layer
-  const coastalCitiesGraphicsLayer = new GraphicsLayer();
+4. **Query the features**
 
-  // Create feature layers
-  const beachAccessPoints = new FeatureLayer({
-    url: "https://services9.arcgis.com/wwVnNW92ZHUIr0V0/arcgis/rest/services/AccessPoints/FeatureServer/0/",
-    outFields: ["*"],
-    definitionExpression: `COUNTY IN ('Santa Barbara', 'Ventura', 'Los Angeles', 'Orange', 'San Diego', 'San Luis Obispo', 'Imperial')`,
-  });
-
-  const coastalBufferLayer = new FeatureLayer({
-    url: "https://services3.arcgis.com/uknczv4rpevve42E/arcgis/rest/services/California_County_Boundaries_and_Identifiers_with_Coastal_Buffers/FeatureServer/1",
-    definitionExpression:
-      "OFFSHORE IS NOT NULL AND CDTFA_COUNTY in ('Santa Barbara County', 'Ventura County', 'Los Angeles County', 'Orange County', 'San Diego County', 'San Luis Obispo County', 'Imperial County')",
-    outFields: ["*"],
-  });
-
-  const coastalCitiesLayer = new FeatureLayer({
-    url: "https://services3.arcgis.com/uknczv4rpevve42E/arcgis/rest/services/California_Cities_and_Identifiers_Blue_Version_view/FeatureServer/2/",
-    outFields: ["*"],
-  });
-
-  // Load feature layers
-  beachAccessPoints.load();
-  coastalBufferLayer.load();
-  coastalCitiesLayer.load();
-
-  // Query features
-  const [coastalBufferResult, beachAccessResult] = await Promise.all([
-    coastalBufferLayer.queryFeatures(),
-    beachAccessPoints.queryFeatures(),
-  ]);
-
-  const coastalCitiesResult = [];
-
-  // Query coastal cities
-  for (const feature of coastalBufferResult.features) {
-    coastalCitiesResult.push(
-      coastalCitiesLayer.queryFeatures({
-        geometry: feature.geometry,
-        spatialRelationship: "intersects",
-        returnGeometry: true,
-        outFields: ["*"],
-      })
-    );
-  }
-
-  // Query beach access points
-  for (const feature of beachAccessResult.features) {
-    coastalCitiesResult.push(
-      coastalCitiesLayer.queryFeatures({
-        geometry: feature.geometry,
-        spatialRelationship: "intersects",
-        returnGeometry: true,
-        outFields: ["*"],
-      })
-    );
-  }
+```typescript
+// Query features
+const [coastalBufferResult, beachAccessResult, coastalCitiesResult]: [FeatureSet, FeatureSet, FeatureSet] = await Promise.all([
+  coastalBufferLayer.queryFeatures(),
+  beachAccessPoints.queryFeatures(),
+  coastalCitiesLayer.queryFeatures(),
+]);
 ```
 
-5. Filter the results to remove duplicate entries
-```ts
-  // Get results
-  const results = await Promise.all(coastalCitiesResult);
-  const allCityFeatures = results.flatMap((r) => r.features);
+5. **Combine the queried features**
+```typescript
+  const allBufferAndAccessPoints: Graphic[] = [...coastalBufferResult.features, ...beachAccessResult.features];
+```
 
-  // Filter city features
-  const alreadyExists = new Set<any>();
-  const filteredCityFeatures = allCityFeatures.filter((feature: any) => {
-    const cityName = feature.attributes.CDTFA_CITY;
+6. **Reproject the features**
 
-    if (alreadyExists.has(cityName)) {
-      return false;
-    } else {
-      alreadyExists.add(cityName);
-      return true;
+```typescript
+// Reproject features
+const reprojectedBufferAndAccessPoints: Graphic[] = [];
+allBufferAndAccessPoints.forEach((feature: Graphic) => {
+  const reprojectedGeometry: GeometryUnion | nullish = projectOperator.execute(feature.geometry!, coastalCitiesResult.features[0].geometry!.spatialReference);
+  if(reprojectedGeometry){
+    reprojectedBufferAndAccessPoints.push(new Graphic({ geometry: reprojectedGeometry }));
+  }
+})
+```
+
+7. **Find the coastal cities by checking if the city's geometry intersects with the reprojected coastal buffer and access points**
+
+```typescript
+// Find coastal cities
+const coastalCities: Set<Graphic> = new Set<Graphic>();
+reprojectedBufferAndAccessPoints.forEach((feature: Graphic) => {
+  coastalCitiesResult.features.forEach((cityFeature: Graphic) => {
+    const intersects: boolean = intersectsOperator.execute(feature.geometry!, cityFeature.geometry!);
+    if(intersects){
+      coastalCities.add(cityFeature);
     }
   });
+});
 ```
 
-6. Create the graphics to display the city boundaries and add the graphics layer to the map
-```ts
-  // Create place graphics
-  function createPlaceGraphics(placeFeatures: any) {
-    return placeFeatures.map((placeFeature: any) => {
-      return new Graphic({
-        geometry: placeFeature.geometry,
-        attributes: placeFeature.attributes,
-        symbol: {
-          type: "simple-fill",
-          color: [0, 120, 255, 0.5],
-          outline: {
-            color: [0, 0, 0, 0.6],
-            width: 1,
-          },
+8. **Create the graphics to display the city boundaries and add the graphics layer to the map**
+
+```typescript
+// Create a graphics layer
+const coastalCitiesGraphicsLayer: GraphicsLayer = new GraphicsLayer();
+
+// Add place graphics to the graphics layer
+const coastalCitiesGraphics: Graphic[] = createPlaceGraphics(coastalCities);
+coastalCitiesGraphicsLayer.addMany(coastalCitiesGraphics);
+
+function createPlaceGraphics(placeFeatures: Set<Graphic>) {
+  return Array.from(placeFeatures).map((placeFeature: Graphic) => {
+    return new Graphic({
+      geometry: placeFeature.geometry!,
+      attributes: placeFeature.attributes,
+      symbol: {
+        type: "simple-fill",
+        color: [0, 120, 255, 0.5],
+        outline: {
+          color: [0, 0, 0, 0.6],
+          width: 1,
         },
-      });
+      },
     });
-  }
-
-  // Add place graphics to the graphics layer
-  const coastalCitiesGraphics = createPlaceGraphics(filteredCityFeatures);
-  coastalCitiesGraphicsLayer.addMany(coastalCitiesGraphics);
-
-  // Add the graphics layer to the map
-  viewElement?.map?.add(coastalCitiesGraphicsLayer);
+  });
+}
 ```
 
-7. Build the calcite select menu and its option
-```ts
-  // Create city options
-  const citySelector = document.getElementById("citySelector") as any;
+9. **Add the graphics layer to the map**
 
-  // Add default option to the select
-  const defaultOption = document.createElement("calcite-option");
-  defaultOption.value = "";
-  defaultOption.disabled = true;
-  defaultOption.selected = true;
-  defaultOption.innerHTML = "Select a City";
-  citySelector.appendChild(defaultOption);
+```typescript
+// Get the map element
+const arcgisMap: HTMLArcgisMapElement | null = document.querySelector("arcgis-map");
+if (!arcgisMap) {
+  throw new Error("Map element not found");
+}
 
-  // Store city features in a map for quick lookup
-  const cityFeaturesMap = new Map<string, any>();
-  
-  // Add city options to the select and store features
-  for (const city of filteredCityFeatures) {
-    const cityName = city.attributes.CDTFA_CITY;
-    const option = document.createElement("calcite-option");
-    option.value = cityName;
-    option.innerHTML = cityName;
-    citySelector.appendChild(option);
-    cityFeaturesMap.set(cityName, city);
-  }
+// Wait for the view to be ready
+await arcgisMap.viewOnReady();
+
+// Add the graphics layer to the map
+arcgisMap.map?.add(coastalCitiesGraphicsLayer);
 ```
 
-8. Use the Places REST API to gather all the available parks and recreations inside the selected city's extent.
-```ts
-  // Create layers for places and buffer
-  const placesLayer = new GraphicsLayer({ id: "placesLayer" });
+10. **Get the calcite select element and create a default option**
 
-  // Add event listener to the select
-  citySelector.addEventListener("calciteSelectChange", async (event: any) => {
-    const selectedCityName = event.target.value;
-    if (selectedCityName) {
-      const selectedCityFeature = cityFeaturesMap.get(selectedCityName);
-      if (selectedCityFeature) {
-        const geometry = selectedCityFeature.geometry;
-        if (geometry.extent.width < 20001 && geometry.extent.height < 20001) {
-          placesLayer.removeAll();
-          viewElement?.map?.remove(placesLayer);
+```typescript
+const citySelector: HTMLCalciteSelectElement | null = document.querySelector("#citySelector");
+if (!citySelector) {
+  throw new Error("City selector not found");
+}
 
-          // Query outdoor places within the city
-          const placesQueryParameters = new PlacesQueryParameters({
-            categoryIds: ["4d4b7105d754a06377d81259"], // Parks category
-            extent: geometry.extent,
-            icon: "png",
+// Add default option to the select
+const defaultOption: HTMLCalciteOptionElement = document.createElement("calcite-option");
+defaultOption.value = "";
+defaultOption.disabled = true;
+defaultOption.selected = true;
+defaultOption.innerHTML = "Select a City";
+citySelector.appendChild(defaultOption);
+```
+
+11. **Store city features in a map for quick lookup**
+
+```typescript
+const cityFeaturesMap: Map<string, Graphic> = new Map<string, Graphic>();
+```
+
+12. **Create new calcite options for the coastal cities and store them in the hash map**
+
+```typescript
+for (const city of coastalCities) {
+  const cityName: string = city.attributes.CDTFA_CITY;
+  const option: HTMLCalciteOptionElement = document.createElement("calcite-option");
+  option.value = cityName;
+  option.innerHTML = cityName;
+  citySelector.appendChild(option);
+  cityFeaturesMap.set(cityName, city);
+}
+```
+
+13. **Create a places layer and add it to the map**
+
+```typescript
+const placesLayer: GraphicsLayer = new GraphicsLayer({ id: "placesLayer" });
+```
+
+14. **Add event listener to the calcite select and query the place details**
+
+```typescript
+citySelector.addEventListener("calciteSelectChange", async (event: Event) => {
+  const selectedCityName: string = (event.target as HTMLCalciteSelectElement).value;
+  if (selectedCityName) {
+    const selectedCityFeature: Graphic | undefined = cityFeaturesMap.get(selectedCityName);
+    if (selectedCityFeature) {
+      const geometry: GeometryUnion | nullish = selectedCityFeature.geometry;
+      if (geometry && geometry!.extent!.width! < 20001 && geometry!.extent!.height! < 20001) {
+        placesLayer.removeAll();
+        arcgisMap.map?.remove(placesLayer);
+
+        // Query outdoor places within the city
+        const placesQueryParameters: PlacesQueryParameters = new PlacesQueryParameters({
+          categoryIds: ["4d4b7105d754a06377d81259"], // Parks category
+          extent: geometry!.extent,
+          icon: "png",
+        });
+
+        try {
+          const results: PlacesQueryResult = await places.queryPlacesWithinExtent(
+            placesQueryParameters
+          );
+
+          // Add outdoor places to the map
+          results.results.map(async (placeResult: PlaceResult) => {
+
+            // Fetch place details
+            const fetchPlaceResultParams = new FetchPlaceParameters({
+              placeId: placeResult.placeId,
+              requestedFields: ["all"],
+            });
+            const fetchPlaceResult: any = await places.fetchPlace(fetchPlaceResultParams);
+
+            // Create place graphic
+            const placeGraphic: Graphic = new Graphic({
+              geometry: placeResult.location,
+              symbol: {
+                type: "picture-marker",
+                url: placeResult.icon.url,
+                width: 15,
+                height: 15,
+              },
+              attributes: {
+                name: fetchPlaceResult.placeDetails.name,
+                address: fetchPlaceResult.placeDetails.address.streetAddress,
+                category: placeResult.categories[0].label,
+              },
+              popupTemplate: {
+                title: "{name}",
+                content: [
+                  {
+                    type: "fields",
+                    fieldInfos: [
+                      {
+                        fieldName: "address",
+                        label: "Address",
+                      },
+                      {
+                        fieldName: "category",
+                        label: "Category",
+                      },
+                    ],
+                  },
+                ],
+              },
+            });
+
+            placesLayer.add(placeGraphic);
           });
 
-          try {
-            const results = await places.queryPlacesWithinExtent(
-              placesQueryParameters
+          // Zoom to the city with a buffer
+          arcgisMap.view.goTo({
+            target: geometry,
+            zoom: 12,
+          });
+
+          // Add the graphics layer to the map
+          arcgisMap.map?.add(placesLayer);
+        } catch (error: Error | unknown) {
+          if (
+            error instanceof Error &&
+            Array.isArray(error.message) &&
+            error.message.length > 0
+          ) {
+            console.error(
+              "Error loading outdoor places:",
+              error.message[0]
             );
-
-            // Add outdoor places to the map
-            results.results.forEach((placeResult: any) => {
-              const placeGraphic = new Graphic({
-                geometry: placeResult.location,
-                symbol: {
-                  type: "picture-marker",
-                  url: placeResult.icon.url,
-                  width: 15,
-                  height: 15,
-                },
-                attributes: {
-                  name: placeResult.name,
-                  address: placeResult.address,
-                  category: placeResult.categories[0].label,
-                },
-                popupTemplate: {
-                  title: "{name}",
-                  content: [
-                    {
-                      type: "fields",
-                      fieldInfos: [
-                        {
-                          fieldName: "address",
-                          label: "Address",
-                        },
-                        {
-                          fieldName: "category",
-                          label: "Category",
-                        },
-                      ],
-                    },
-                  ],
-                },
-              });
-
-              placesLayer.add(placeGraphic);
-            });
-
-            // Zoom to the city with a buffer
-            viewElement?.goTo({
-              target: geometry,
-              zoom: 12,
-            });
-
-            // Add the graphics layer to the map
-            viewElement?.map?.add(placesLayer);
-          } catch (error: any) {
-            if (
-              error.details &&
-              Array.isArray(error.details.messages) &&
-              error.details.messages.length > 0
-            ) {
-              console.error(
-                "Error loading outdoor places:",
-                error.details.messages[0]
-              );
-            } else {
-              console.error(
-                "Error loading outdoor places:",
-                error.message || error.toString()
-              );
-            }
+          } else {
+            console.error(
+              "Error loading outdoor places:",
+              error instanceof Error ? error.message : "Unknown error"
+            );
           }
-        } else {
-          console.warn("City is too large for place query.");
         }
+      } else {
+        console.warn("City is too large for place query.");
       }
     }
-  });
+  }
+});
 ```
 
 ### Run the application
