@@ -125,8 +125,7 @@ import PlacesQueryParameters from "@arcgis/core/rest/support/PlacesQueryParamete
 import PlacesQueryResult from "@arcgis/core/rest/support/PlacesQueryResult";
 import FetchPlaceParameters from "@arcgis/core/rest/support/FetchPlaceParameters";
 import PlaceResult from "@arcgis/core/rest/support/PlaceResult";
-import * as intersectsOperator from "@arcgis/core/geometry/operators/intersectsOperator";
-import * as projectOperator from "@arcgis/core/geometry/operators/projectOperator";
+import * as unionOperator from "@arcgis/core/geometry/operators/unionOperator";
 import type { GeometryUnion } from "@arcgis/core/unionTypes";
 ```
 
@@ -146,13 +145,6 @@ const beachAccessPoints: FeatureLayer = new FeatureLayer({
   definitionExpression: `COUNTY IN ('Santa Barbara', 'Ventura', 'Los Angeles', 'Orange', 'San Diego', 'San Luis Obispo', 'Imperial')`,
 });
 
-const coastalBufferLayer: FeatureLayer = new FeatureLayer({
-  url: "https://services3.arcgis.com/uknczv4rpevve42E/arcgis/rest/services/California_County_Boundaries_and_Identifiers_with_Coastal_Buffers/FeatureServer/1",
-  definitionExpression:
-    "OFFSHORE IS NOT NULL AND CDTFA_COUNTY in ('Santa Barbara County', 'Ventura County', 'Los Angeles County', 'Orange County', 'San Diego County', 'San Luis Obispo County', 'Imperial County')",
-  outFields: ["*"],
-});
-
 const coastalCitiesLayer: FeatureLayer = new FeatureLayer({
   url: "https://services3.arcgis.com/uknczv4rpevve42E/arcgis/rest/services/California_Cities_and_Identifiers_Blue_Version_view/FeatureServer/2/",
   outFields: ["*"],
@@ -162,64 +154,57 @@ const coastalCitiesLayer: FeatureLayer = new FeatureLayer({
 // Load feature layers and project operator
 await Promise.all([
   beachAccessPoints.load(),
-  coastalBufferLayer.load(),
-  coastalCitiesLayer.load(),
-  projectOperator.load(),
 ]);
 ```
 
-4. **Query the features**
+4. **Query the beach access features**
 
 ```typescript
 // Query features
-const [coastalBufferResult, beachAccessResult, coastalCitiesResult]: [FeatureSet, FeatureSet, FeatureSet] = await Promise.all([
-  coastalBufferLayer.queryFeatures(),
+const [beachAccessResult]: [FeatureSet] = await Promise.all([
   beachAccessPoints.queryFeatures(),
-  coastalCitiesLayer.queryFeatures(),
 ]);
 ```
 
-5. **Combine the queried features**
+5. **Get the geometries of the beach access features**
 ```typescript
-  const allBufferAndAccessPoints: Graphic[] = [...coastalBufferResult.features, ...beachAccessResult.features];
+const beachAccessGeometries: GeometryUnion[] = beachAccessResult.features.map((feature: Graphic) => feature.geometry!);
 ```
 
-6. **Reproject the features**
-
+6. **Union the queried geometries**
 ```typescript
-// Reproject features
-const reprojectedBufferAndAccessPoints: Graphic[] = [];
-allBufferAndAccessPoints.forEach((feature: Graphic) => {
-  const reprojectedGeometry: GeometryUnion | nullish = projectOperator.execute(feature.geometry!, coastalCitiesResult.features[0].geometry!.spatialReference);
-  if(reprojectedGeometry){
-    reprojectedBufferAndAccessPoints.push(new Graphic({ geometry: reprojectedGeometry }));
-  }
-})
+  const unionedGeometry: GeometryUnion | nullish = unionOperator.executeMany(beachAccessGeometries);
 ```
 
-7. **Find the coastal cities by checking if the city's geometry intersects with the reprojected coastal buffer and access points**
+7. **Find the coastal cities that intersect with the unioned geometry**
 
 ```typescript
 // Find coastal cities
 const coastalCities: Set<Graphic> = new Set<Graphic>();
-reprojectedBufferAndAccessPoints.forEach((feature: Graphic) => {
-  coastalCitiesResult.features.forEach((cityFeature: Graphic) => {
-    const intersects: boolean = intersectsOperator.execute(feature.geometry!, cityFeature.geometry!);
-    if(intersects){
-      coastalCities.add(cityFeature);
-    }
-  });
+const coastalCitiesResult: FeatureSet = await coastalCitiesLayer.queryFeatures({
+  geometry: unionedGeometry!,
+  spatialRelationship: "intersects",
+  returnGeometry: true,
+  outFields: ["*"],
 });
 ```
 
-8. **Create the graphics to display the city boundaries and add the graphics layer to the map**
+8. **Add the coastal cities to the set**
 
 ```typescript
-// Create a graphics layer
+// Find coastal cities
+coastalCitiesResult.features.forEach((feature: Graphic) => {
+    coastalCities.add(feature);
+});
+```
+
+9. **Create the graphics to display the city boundaries and add the graphics layer to the map**
+
+```typescript
 const coastalCitiesGraphicsLayer: GraphicsLayer = new GraphicsLayer();
 
 // Add place graphics to the graphics layer
-const coastalCitiesGraphics: Graphic[] = createPlaceGraphics(coastalCities);
+const coastalCitiesGraphics: Graphic[] = await Promise.all(createPlaceGraphics(coastalCities));
 coastalCitiesGraphicsLayer.addMany(coastalCitiesGraphics);
 
 function createPlaceGraphics(placeFeatures: Set<Graphic>) {
@@ -235,12 +220,26 @@ function createPlaceGraphics(placeFeatures: Set<Graphic>) {
           width: 1,
         },
       },
+      popupTemplate: {
+        title: "City",
+        content: [
+          {
+            type: "fields",
+            fieldInfos: [
+              {
+                fieldName: "CDTFA_CITY",
+                label: "City",
+              },
+            ],
+          },
+        ],
+      },
     });
   });
 }
 ```
 
-9. **Add the graphics layer to the map**
+10. **Add the graphics layer to the map**
 
 ```typescript
 // Get the map element
@@ -256,7 +255,7 @@ await arcgisMap.viewOnReady();
 arcgisMap.map?.add(coastalCitiesGraphicsLayer);
 ```
 
-10. **Get the calcite select element and create a default option**
+11. **Get the calcite select element and create a default option**
 
 ```typescript
 const citySelector: HTMLCalciteSelectElement | null = document.querySelector("#citySelector");
@@ -273,13 +272,13 @@ defaultOption.innerHTML = "Select a City";
 citySelector.appendChild(defaultOption);
 ```
 
-11. **Store city features in a map for quick lookup**
+12. **Store city features in a map for quick lookup**
 
 ```typescript
 const cityFeaturesMap: Map<string, Graphic> = new Map<string, Graphic>();
 ```
 
-12. **Create new calcite options for the coastal cities and store them in the hash map**
+13. **Create new calcite options for the coastal cities and store them in the hash map**
 
 ```typescript
 for (const city of coastalCities) {

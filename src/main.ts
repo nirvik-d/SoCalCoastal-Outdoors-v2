@@ -19,8 +19,7 @@ import PlacesQueryParameters from "@arcgis/core/rest/support/PlacesQueryParamete
 import PlacesQueryResult from "@arcgis/core/rest/support/PlacesQueryResult";
 import FetchPlaceParameters from "@arcgis/core/rest/support/FetchPlaceParameters";
 import PlaceResult from "@arcgis/core/rest/support/PlaceResult";
-import * as intersectsOperator from "@arcgis/core/geometry/operators/intersectsOperator";
-import * as projectOperator from "@arcgis/core/geometry/operators/projectOperator";
+import * as unionOperator from "@arcgis/core/geometry/operators/unionOperator";
 import type { GeometryUnion } from "@arcgis/core/unionTypes";
 
 // API authentication
@@ -33,62 +32,46 @@ const beachAccessPoints: FeatureLayer = new FeatureLayer({
   definitionExpression: `COUNTY IN ('Santa Barbara', 'Ventura', 'Los Angeles', 'Orange', 'San Diego', 'San Luis Obispo', 'Imperial')`,
 });
 
-const coastalBufferLayer: FeatureLayer = new FeatureLayer({
-  url: "https://services3.arcgis.com/uknczv4rpevve42E/arcgis/rest/services/California_County_Boundaries_and_Identifiers_with_Coastal_Buffers/FeatureServer/1",
-  definitionExpression:
-    "OFFSHORE IS NOT NULL AND CDTFA_COUNTY in ('Santa Barbara County', 'Ventura County', 'Los Angeles County', 'Orange County', 'San Diego County', 'San Luis Obispo County', 'Imperial County')",
-  outFields: ["*"],
-});
-
 const coastalCitiesLayer: FeatureLayer = new FeatureLayer({
   url: "https://services3.arcgis.com/uknczv4rpevve42E/arcgis/rest/services/California_Cities_and_Identifiers_Blue_Version_view/FeatureServer/2/",
   outFields: ["*"],
-  definitionExpression: `CDTFA_COUNTY IN ('Santa Barbara County', 'Ventura County', 'Los Angeles County', 'Orange County', 'San Diego County', 'San Luis Obispo County', 'Imperial County')`
+  definitionExpression: `CDTFA_COUNTY IN ('Santa Barbara County', 'Ventura County', 'Los Angeles County', 'Orange County', 'San Diego County', 'San Luis Obispo County', 'Imperial County')`,
 });
 
 // Load feature layers and project operator
 await Promise.all([
   beachAccessPoints.load(),
-  coastalBufferLayer.load(),
-  coastalCitiesLayer.load(),
-  projectOperator.load(),
 ]);
 
 // Query features
-const [coastalBufferResult, beachAccessResult, coastalCitiesResult]: [FeatureSet, FeatureSet, FeatureSet] = await Promise.all([
-  coastalBufferLayer.queryFeatures(),
+const [beachAccessResult]: [FeatureSet] = await Promise.all([
   beachAccessPoints.queryFeatures(),
-  coastalCitiesLayer.queryFeatures(),
 ]);
 
-// Combine features
-const allBufferAndAccessPoints: Graphic[] = [...coastalBufferResult.features, ...beachAccessResult.features];
+// Grab the geometries for the beach access points
+const beachAccessGeometries: GeometryUnion[] = beachAccessResult.features.map((feature: Graphic) => feature.geometry!);
 
-// Reproject features
-const reprojectedBufferAndAccessPoints: Graphic[] = [];
-allBufferAndAccessPoints.forEach((feature: Graphic) => {
-  const reprojectedGeometry: GeometryUnion | nullish = projectOperator.execute(feature.geometry!, coastalCitiesResult.features[0].geometry!.spatialReference);
-  if(reprojectedGeometry){
-    reprojectedBufferAndAccessPoints.push(new Graphic({ geometry: reprojectedGeometry }));
-  }
-})
+// Union the geometries
+const unionedGeometry: GeometryUnion | nullish = unionOperator.executeMany(beachAccessGeometries);
 
-// Find coastal cities
+// Find the coastal cities that are connected to the beach access
 const coastalCities: Set<Graphic> = new Set<Graphic>();
-reprojectedBufferAndAccessPoints.forEach((feature: Graphic) => {
-  coastalCitiesResult.features.forEach((cityFeature: Graphic) => {
-    const intersects: boolean = intersectsOperator.execute(feature.geometry!, cityFeature.geometry!);
-    if(intersects){
-      coastalCities.add(cityFeature);
-    }
-  });
+const coastalCitiesResult: FeatureSet = await coastalCitiesLayer.queryFeatures({
+  geometry: unionedGeometry!,
+  spatialRelationship: "intersects",
+  returnGeometry: true,
+  outFields: ["*"],
+});
+
+coastalCitiesResult.features.forEach((feature: Graphic) => {
+    coastalCities.add(feature);
 });
 
 // Create a graphics layer
 const coastalCitiesGraphicsLayer: GraphicsLayer = new GraphicsLayer();
 
 // Add place graphics to the graphics layer
-const coastalCitiesGraphics: Graphic[] = createPlaceGraphics(coastalCities);
+const coastalCitiesGraphics: Graphic[] = await Promise.all(createPlaceGraphics(coastalCities));
 coastalCitiesGraphicsLayer.addMany(coastalCitiesGraphics);
 
 function createPlaceGraphics(placeFeatures: Set<Graphic>) {
@@ -103,6 +86,20 @@ function createPlaceGraphics(placeFeatures: Set<Graphic>) {
           color: [0, 0, 0, 0.6],
           width: 1,
         },
+      },
+      popupTemplate: {
+        title: "City",
+        content: [
+          {
+            type: "fields",
+            fieldInfos: [
+              {
+                fieldName: "CDTFA_CITY",
+                label: "City",
+              },
+            ],
+          },
+        ],
       },
     });
   });
