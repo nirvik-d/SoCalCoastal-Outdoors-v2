@@ -150,11 +150,6 @@ const coastalCitiesLayer: FeatureLayer = new FeatureLayer({
   outFields: ["*"],
   definitionExpression: `CDTFA_COUNTY IN ('Santa Barbara County', 'Ventura County', 'Los Angeles County', 'Orange County', 'San Diego County', 'San Luis Obispo County', 'Imperial County')`
 });
-
-// Load feature layers and project operator
-await Promise.all([
-  beachAccessPoints.load(),
-]);
 ```
 
 4. **Query the beach access features**
@@ -167,13 +162,36 @@ const [beachAccessResult]: [FeatureSet] = await Promise.all([
 ```
 
 5. **Get the geometries of the beach access features**
+
 ```typescript
 const beachAccessGeometries: GeometryUnion[] = beachAccessResult.features.map((feature: Graphic) => feature.geometry!);
 ```
 
-6. **Union the queried geometries**
+6. **Chunk the geometries and union the chunks to improve performance**
+
 ```typescript
-  const unionedGeometry: GeometryUnion | nullish = unionOperator.executeMany(beachAccessGeometries);
+// Chunk the geometries
+const chunkSize = Math.ceil(beachAccessGeometries.length / 8);
+
+// Union the geometries
+const unionedBeachAccessGeometry: GeometryUnion | nullish =
+  await runUnion(beachAccessGeometries, chunkSize);
+
+// Helper function to union geometries in a worker
+async function runUnion(
+  beachAccessGeometries: GeometryUnion[],
+  chunkSize: number
+): Promise<GeometryUnion | nullish> {
+
+  let unionedGeometry: GeometryUnion | nullish = beachAccessGeometries[0];
+
+  for (let i = 1; i < beachAccessGeometries!.length; i += chunkSize) {
+    const chunk = beachAccessGeometries!.slice(i, i + chunkSize);
+    unionedGeometry = unionOperator.executeMany([unionedGeometry!, ...chunk]);
+  }
+
+  return unionedGeometry;
+}
 ```
 
 7. **Find the coastal cities that intersect with the unioned geometry**

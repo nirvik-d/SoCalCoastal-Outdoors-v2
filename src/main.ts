@@ -38,40 +38,59 @@ const coastalCitiesLayer: FeatureLayer = new FeatureLayer({
   definitionExpression: `CDTFA_COUNTY IN ('Santa Barbara County', 'Ventura County', 'Los Angeles County', 'Orange County', 'San Diego County', 'San Luis Obispo County', 'Imperial County')`,
 });
 
-// Load feature layers and project operator
-await Promise.all([
-  beachAccessPoints.load(),
-]);
-
 // Query features
 const [beachAccessResult]: [FeatureSet] = await Promise.all([
   beachAccessPoints.queryFeatures(),
 ]);
 
-// Grab the geometries for the beach access points
-const beachAccessGeometries: GeometryUnion[] = beachAccessResult.features.map((feature: Graphic) => feature.geometry!);
+// Prepare the geometries for the beach access points
+const beachAccessGeometries: GeometryUnion[] = await Promise.all(
+  beachAccessResult.features.map((feature: Graphic) => feature.geometry!)
+);
+
+// Chunk the geometries
+const chunkSize = Math.ceil(beachAccessGeometries.length / 8);
 
 // Union the geometries
-const unionedGeometry: GeometryUnion | nullish = unionOperator.executeMany(beachAccessGeometries);
+const unionedBeachAccessGeometry: GeometryUnion | nullish =
+  await runUnion(beachAccessGeometries, chunkSize);
+
+// Helper function to union geometries in a worker
+async function runUnion(
+  beachAccessGeometries: GeometryUnion[],
+  chunkSize: number
+): Promise<GeometryUnion | nullish> {
+
+  let unionedGeometry: GeometryUnion | nullish = beachAccessGeometries[0];
+
+  for (let i = 1; i < beachAccessGeometries!.length; i += chunkSize) {
+    const chunk = beachAccessGeometries!.slice(i, i + chunkSize);
+    unionedGeometry = unionOperator.executeMany([unionedGeometry!, ...chunk]);
+  }
+
+  return unionedGeometry;
+}
 
 // Find the coastal cities that are connected to the beach access
 const coastalCities: Set<Graphic> = new Set<Graphic>();
 const coastalCitiesResult: FeatureSet = await coastalCitiesLayer.queryFeatures({
-  geometry: unionedGeometry!,
+  geometry: unionedBeachAccessGeometry!,
   spatialRelationship: "intersects",
   returnGeometry: true,
   outFields: ["*"],
 });
 
 coastalCitiesResult.features.forEach((feature: Graphic) => {
-    coastalCities.add(feature);
+  coastalCities.add(feature);
 });
 
 // Create a graphics layer
 const coastalCitiesGraphicsLayer: GraphicsLayer = new GraphicsLayer();
 
 // Add place graphics to the graphics layer
-const coastalCitiesGraphics: Graphic[] = await Promise.all(createPlaceGraphics(coastalCities));
+const coastalCitiesGraphics: Graphic[] = await Promise.all(
+  createPlaceGraphics(coastalCities)
+);
 coastalCitiesGraphicsLayer.addMany(coastalCitiesGraphics);
 
 function createPlaceGraphics(placeFeatures: Set<Graphic>) {
@@ -106,7 +125,8 @@ function createPlaceGraphics(placeFeatures: Set<Graphic>) {
 }
 
 // Get the map element
-const arcgisMap: HTMLArcgisMapElement | null = document.querySelector("arcgis-map");
+const arcgisMap: HTMLArcgisMapElement | null =
+  document.querySelector("arcgis-map");
 if (!arcgisMap) {
   throw new Error("Map element not found");
 }
@@ -118,13 +138,15 @@ await arcgisMap.viewOnReady();
 arcgisMap.map?.add(coastalCitiesGraphicsLayer);
 
 // Create city options
-const citySelector: HTMLCalciteSelectElement | null = document.querySelector("#citySelector");
+const citySelector: HTMLCalciteSelectElement | null =
+  document.querySelector("#citySelector");
 if (!citySelector) {
   throw new Error("City selector not found");
 }
 
 // Add default option to the select
-const defaultOption: HTMLCalciteOptionElement = document.createElement("calcite-option");
+const defaultOption: HTMLCalciteOptionElement =
+  document.createElement("calcite-option");
 defaultOption.value = "";
 defaultOption.disabled = true;
 defaultOption.selected = true;
@@ -137,7 +159,8 @@ const cityFeaturesMap: Map<string, Graphic> = new Map<string, Graphic>();
 // Add city options to the select and store features
 for (const city of coastalCities) {
   const cityName: string = city.attributes.CDTFA_CITY;
-  const option: HTMLCalciteOptionElement = document.createElement("calcite-option");
+  const option: HTMLCalciteOptionElement =
+    document.createElement("calcite-option");
   option.value = cityName;
   option.innerHTML = cityName;
   citySelector.appendChild(option);
@@ -149,36 +172,43 @@ const placesLayer: GraphicsLayer = new GraphicsLayer({ id: "placesLayer" });
 
 // Add event listener to the select
 citySelector.addEventListener("calciteSelectChange", async (event: Event) => {
-  const selectedCityName: string = (event.target as HTMLCalciteSelectElement).value;
+  const selectedCityName: string = (event.target as HTMLCalciteSelectElement)
+    .value;
   if (selectedCityName) {
-    const selectedCityFeature: Graphic | undefined = cityFeaturesMap.get(selectedCityName);
+    const selectedCityFeature: Graphic | undefined =
+      cityFeaturesMap.get(selectedCityName);
     if (selectedCityFeature) {
       const geometry: GeometryUnion | nullish = selectedCityFeature.geometry;
-      if (geometry && geometry!.extent!.width! < 20001 && geometry!.extent!.height! < 20001) {
+      if (
+        geometry &&
+        geometry!.extent!.width! < 20001 &&
+        geometry!.extent!.height! < 20001
+      ) {
         placesLayer.removeAll();
         arcgisMap.map?.remove(placesLayer);
 
         // Query outdoor places within the city
-        const placesQueryParameters: PlacesQueryParameters = new PlacesQueryParameters({
-          categoryIds: ["4d4b7105d754a06377d81259"], // Parks category
-          extent: geometry!.extent,
-          icon: "png",
-        });
+        const placesQueryParameters: PlacesQueryParameters =
+          new PlacesQueryParameters({
+            categoryIds: ["4d4b7105d754a06377d81259"], // Parks category
+            extent: geometry!.extent,
+            icon: "png",
+          });
 
         try {
-          const results: PlacesQueryResult = await places.queryPlacesWithinExtent(
-            placesQueryParameters
-          );
+          const results: PlacesQueryResult =
+            await places.queryPlacesWithinExtent(placesQueryParameters);
 
           // Add outdoor places to the map
           results.results.map(async (placeResult: PlaceResult) => {
-
             // Fetch place details
             const fetchPlaceResultParams = new FetchPlaceParameters({
               placeId: placeResult.placeId,
               requestedFields: ["all"],
             });
-            const fetchPlaceResult: any = await places.fetchPlace(fetchPlaceResultParams);
+            const fetchPlaceResult: any = await places.fetchPlace(
+              fetchPlaceResultParams
+            );
 
             // Create place graphic
             const placeGraphic: Graphic = new Graphic({
@@ -231,10 +261,7 @@ citySelector.addEventListener("calciteSelectChange", async (event: Event) => {
             Array.isArray(error.message) &&
             error.message.length > 0
           ) {
-            console.error(
-              "Error loading outdoor places:",
-              error.message[0]
-            );
+            console.error("Error loading outdoor places:", error.message[0]);
           } else {
             console.error(
               "Error loading outdoor places:",
